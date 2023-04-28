@@ -374,6 +374,10 @@ class Playlist : public QAbstractListModel {
   // items should update their position.
   void QueueChanged();
 
+  // Signals that the playlist has finished asynchronously loading songs
+  // the playlist can now be safely processed or closed
+  void PlaylistSongsLoaded(int id);
+
  private:
   void SetCurrentIsPaused(bool paused);
   int NextVirtualIndex(int i, bool ignore_repeat_track) const;

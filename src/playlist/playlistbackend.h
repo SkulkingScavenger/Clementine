@@ -67,6 +67,7 @@ class PlaylistBackend : public QObject {
   void SetPlaylistUiPath(int id, const QString& path);
 
   int CreatePlaylist(const QString& name, const QString& special_type);
+  int CreatePlaylistBulkImport(const QString& name, const QString& special_type, const QString& ui_path);
   void SavePlaylistAsync(int playlist, const PlaylistItemList& items,
                          int last_played,
                          smart_playlists::GeneratorPtr dynamic);
@@ -79,6 +80,8 @@ class PlaylistBackend : public QObject {
  public slots:
   void SavePlaylist(int playlist, const PlaylistItemList& items,
                     int last_played, smart_playlists::GeneratorPtr dynamic);
+ signals:
+  void PlaylistSaved(int id);
 
  private:
   struct NewSongFromQueryState {

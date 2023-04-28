@@ -881,7 +881,7 @@ void Playlist::InsertUrls(const QList<QUrl>& urls, int pos, bool play_now,
   SongLoaderInserter* inserter = new SongLoaderInserter(
       task_manager_, library_, backend_->app()->player());
   connect(inserter, SIGNAL(Error(QString)), SIGNAL(Error(QString)));
-
+  qDebug() << "||| INSERT URLS |||" << urls;
   inserter->Load(this, pos, play_now, enqueue, enqueue_next, urls);
 }
 
@@ -1241,8 +1241,19 @@ void Playlist::UpdateItems(const SongList& songs) {
       }
     }
   }
+
+  //emit PlaylistSongsLoaded(id_);
+  connect(backend_,SIGNAL(PlaylistSaved(int)),SIGNAL(PlaylistSongsLoaded(int)));
+  // connect(backend_,SIGNAL(PlaylistSaved(int)),SLOT(DisconnectAfterFirstCall(int)));
   Save();
+
 }
+
+// void DisconnectAfterFirstCall(int id){
+//   disconnect(backend_,SIGNAL(PlaylistSaved(int)),SIGNAL(PlaylistSongsLoaded(int)));
+//   disconnect(backend_,SIGNAL(PlaylistSaved(int)),SLOT(DisconnectAfterFirstCall(int)));
+// }
+
 
 QMimeData* Playlist::mimeData(const QModelIndexList& indexes) const {
   if (indexes.isEmpty()) return nullptr;

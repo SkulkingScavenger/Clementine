@@ -101,6 +101,16 @@ QList<Playlist*> PlaylistManager::GetAllPlaylists() const {
   return result;
 }
 
+QList<int> PlaylistManager::GetAllPlaylistIds() const {
+  QList<int> result;
+
+  for (const int data : playlists_.keys()) {
+    result.append(data);
+  }
+
+  return result;
+}
+
 QItemSelection PlaylistManager::selection(int id) const {
   QMap<int, Data>::const_iterator it = playlists_.find(id);
   return it->selection;
@@ -162,14 +172,14 @@ int PlaylistManager::New(const QString& name, const SongList& songs,
   return id;
 }
 
-void PlaylistManager::Load(const QString& filename) {
+int PlaylistManager::Load(const QString& filename) {
   QFileInfo info(filename);
 
   int id = playlist_backend_->CreatePlaylist(info.baseName(), QString());
 
   if (id == -1) {
     emit Error(tr("Couldn't create playlist"));
-    return;
+    return id;
   }
 
   Playlist* playlist =
@@ -177,6 +187,30 @@ void PlaylistManager::Load(const QString& filename) {
 
   QList<QUrl> urls;
   playlist->InsertUrls(urls << QUrl::fromLocalFile(filename));
+
+  return id;
+}
+
+int PlaylistManager::LoadPlaylistBulkImport(const QString& filename, const QString& ui_path){
+  QFileInfo info(filename);
+
+  int id = playlist_backend_->CreatePlaylistBulkImport(info.baseName(), QString(), ui_path);
+
+  if (id == -1) {
+    emit Error(tr("Couldn't create playlist"));
+    return id;
+  }
+
+  Playlist* playlist = new Playlist(playlist_backend_, app_->task_manager(),
+                               library_backend_, id, QString(), true);
+
+  playlist->set_sequence(sequence_);
+  playlist->set_ui_path(ui_path);
+
+  QList<QUrl> urls;
+  playlist->InsertUrls(urls << QUrl::fromLocalFile(filename));
+
+  return id;
 }
 
 void PlaylistManager::Save(int id, const QString& filename,
@@ -193,6 +227,37 @@ void PlaylistManager::Save(int id, const QString& filename,
                SLOT(ItemsLoadedForSavePlaylist(QFuture<SongList>, QString,
                                                Playlist::Path)),
                future, filename, path_type);
+  }
+}
+
+int PlaylistManager::CreatePlaylistFromPath(const QString& filename, const QString& ui_path){
+    QFileInfo info(filename);
+
+  int id = playlist_backend_->CreatePlaylist(info.baseName(), QString());
+
+  if (id == -1) {
+    emit Error(tr("Couldn't create playlist"));
+    return id;
+  }
+
+  Playlist* playlist =
+      AddPlaylist(id, info.baseName(), QString(), ui_path, false);
+
+  QList<QUrl> urls;
+  playlist->InsertUrls(urls << QUrl::fromLocalFile(filename));
+
+  return id;
+}
+
+void PlaylistManager::BulkImportPlaylistsCallback(int id){
+  if (playlists_.contains(id)) {
+    // If playlists_ contains this playlist, its means it's opened: star or
+    // unstar it.
+    bool favorite = true;
+    playlist_backend_->FavoritePlaylist(id, favorite);
+    playlists_[id].p->set_favorite(favorite);
+  }else{
+    qDebug() << "| || ||ERROR";
   }
 }
 
@@ -293,6 +358,7 @@ void PlaylistManager::Favorite(int id, bool favorite) {
     // panel,
     // while it's not visible in the playlist tabbar either, because it has been
     // closed: delete it.
+
     playlist_backend_->RemovePlaylist(id);
   }
   emit PlaylistFavorited(id, favorite);

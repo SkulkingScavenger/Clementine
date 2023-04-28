@@ -108,6 +108,7 @@ SongLoader::Result SongLoader::Load(const QUrl& url) {
   url_ = url;
 
   if (url_.scheme() == "file") {
+    qDebug() << "|| ITS A FILE || URL: " << url;
     return LoadLocal(url_.toLocalFile());
   }
 
@@ -186,14 +187,13 @@ SongLoader::Result SongLoader::LoadLocal(const QString& filename) {
   LibraryQuery query;
   query.SetColumnSpec("%songs_table.ROWID, " + Song::kColumnSpec);
   query.AddWhere("filename", url.toEncoded());
-
   if (library_->ExecQuery(&query) && query.Next()) {
     // we may have many results when the file has many sections
     do {
       Song song;
       song.InitFromQuery(query, true);
-
       if (song.is_valid()) {
+        qDebug() << "||SONGLOADER::LOADLOCAL IS VALID ||"; // << song.title();
         songs_ << song;
       }
     } while (query.Next());
@@ -238,6 +238,7 @@ SongLoader::Result SongLoader::LoadLocalAsync(const QString& filename) {
     // It's a playlist!
     file.reset();
     songs_ = parser->Load(&file, filename, info.path());
+    qDebug() << "| || SONGLOADER:::SONGS LOADED: ";
     return Success;
   }
 

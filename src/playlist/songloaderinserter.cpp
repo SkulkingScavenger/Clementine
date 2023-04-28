@@ -52,6 +52,7 @@ void SongLoaderInserter::Load(Playlist* destination, int row, bool play_now,
           SLOT(UpdateItems(const SongList&)));
 
   for (const QUrl& url : urls) {
+    qDebug() << "||| URL |||: " << url;
     SongLoader* loader = new SongLoader(library_, player_, this);
 
     SongLoader::Result ret = loader->Load(url);
@@ -177,6 +178,7 @@ void SongLoaderInserter::AsyncLoad() {
   task_manager_->SetTaskFinished(async_load_id);
 
   // Replace the partially-loaded items by the new ones, fully loaded.
+  qDebug() << "| || ASYNC SONG LOAD COMPLETE:";
   emit EffectiveLoadFinished(songs);
 
   deleteLater();

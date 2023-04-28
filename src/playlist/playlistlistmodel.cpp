@@ -82,6 +82,7 @@ void PlaylistListModel::AddRowItem(QStandardItem* item,
       const int id = item->data(Role_PlaylistId).toInt();
       playlists_by_id_[id] = item;
       if (dropping_rows_) {
+        qDebug() << "EMITTING PLAYLISTPATHCHANGED!!!!!!!";
         emit PlaylistPathChanged(id, parent_path);
       }
 

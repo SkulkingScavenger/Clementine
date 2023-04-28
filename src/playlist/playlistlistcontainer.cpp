@@ -35,6 +35,13 @@
 #include "ui/iconloader.h"
 #include "ui_playlistlistcontainer.h"
 
+
+#include <QFileDialog>
+#include <QDirIterator>
+#include "core/utilities.h"
+
+const char* PlaylistListContainer::kSettingsGroup = "PlaylistList";
+
 /* This filter proxy will:
  - Accept all ancestors if at least a single child matches
  - Accept all children if at least a single ancestor matches
@@ -146,6 +153,7 @@ PlaylistListContainer::PlaylistListContainer(QWidget* parent)
       action_new_folder_(new QAction(this)),
       action_remove_(new QAction(this)),
       action_save_playlist_(new QAction(this)),
+      action_bulk_import_playlists_(new QAction(this)),
       model_(new PlaylistListModel(this)),
       proxy_(new PlaylistListFilterProxyModel(this)),
       loaded_icons_(false),
@@ -158,16 +166,18 @@ PlaylistListContainer::PlaylistListContainer(QWidget* parent)
   action_remove_->setText(tr("Delete"));
   action_save_playlist_->setText(
       tr("Save playlist", "Save playlist menu action."));
+  action_bulk_import_playlists_->setText(tr("Bulk Import Playlists"));
 
   ui_->new_folder->setDefaultAction(action_new_folder_);
   ui_->remove->setDefaultAction(action_remove_);
   ui_->save_playlist->setDefaultAction(action_save_playlist_);
+  ui_->bulk_import_playlists->setDefaultAction(action_bulk_import_playlists_);
 
   connect(action_new_folder_, SIGNAL(triggered()), SLOT(NewFolderClicked()));
   connect(action_remove_, SIGNAL(triggered()), SLOT(DeleteClicked()));
   connect(action_save_playlist_, SIGNAL(triggered()), SLOT(SavePlaylist()));
-  connect(model_, SIGNAL(PlaylistPathChanged(int, QString)),
-          SLOT(PlaylistPathChanged(int, QString)));
+  connect(action_bulk_import_playlists_, SIGNAL(triggered()), SLOT(BulkImportPlaylists()));
+  connect(model_, SIGNAL(PlaylistPathChanged(int, QString)), SLOT(PlaylistPathChanged(int, QString)));
 
   proxy_->setSourceModel(model_);
   proxy_->setDynamicSortFilter(true);
@@ -182,6 +192,9 @@ PlaylistListContainer::PlaylistListContainer(QWidget* parent)
 
   connect(ui_->search, SIGNAL(textChanged(QString)),
           SLOT(SearchTextEdited(QString)));
+
+  //access to global settings using the QSettings object. Use this to get data about last opened folder etc.
+  settings_.beginGroup(kSettingsGroup);
 }
 
 PlaylistListContainer::~PlaylistListContainer() { delete ui_; }
@@ -198,6 +211,8 @@ void PlaylistListContainer::showEvent(QShowEvent* e) {
   action_remove_->setIcon(IconLoader::Load("edit-delete", IconLoader::Base));
   action_save_playlist_->setIcon(
       IconLoader::Load("document-save", IconLoader::Base));
+  action_bulk_import_playlists_->setIcon(
+      IconLoader::Load("document-open-folder", IconLoader::Base));
 
   model_->SetIcons(IconLoader::Load("view-media-playlist", IconLoader::Base),
                    IconLoader::Load("folder", IconLoader::Base));
@@ -235,8 +250,8 @@ void PlaylistListContainer::SetApplication(Application* app) {
 
   connect(manager, SIGNAL(PlaylistAdded(int, QString, bool)),
           SLOT(AddPlaylist(int, QString, bool)));
-  connect(manager, SIGNAL(PlaylistFavorited(int, bool)),
-          SLOT(PlaylistFavoriteStateChanged(int, bool)));
+  connect(manager, SIGNAL(PlaylistFavorited(int, bool, bool)),
+          SLOT(PlaylistFavoriteStateChanged(int, bool, bool)));
   connect(manager, SIGNAL(PlaylistRenamed(int, QString)),
           SLOT(PlaylistRenamed(int, QString)));
   connect(manager, SIGNAL(CurrentChanged(Playlist*)),
@@ -288,6 +303,9 @@ void PlaylistListContainer::AddPlaylist(int id, const QString& name,
   QStandardItem* playlist_item = model_->NewPlaylist(name, id);
   QStandardItem* parent_folder = model_->FolderByPath(*ui_path);
   parent_folder->appendRow(playlist_item);
+
+  QList<Song> songs = app_->playlist_backend()->GetPlaylistSongs(id);
+
   for (const Song& s : app_->playlist_backend()->GetPlaylistSongs(id)) {
     QStandardItem* track_item = model_->NewTrack(s);
     track_item->setDragEnabled(false);
@@ -327,6 +345,95 @@ void PlaylistListContainer::SavePlaylist() {
     QStandardItem* item = model_->PlaylistById(playlist_id);
     QString playlist_name = item ? item->text() : tr("Playlist");
     app_->playlist_manager()->SaveWithUI(playlist_id, playlist_name);
+  }
+}
+
+/*
+Open filepicker and 
+Use QDirIterator to recursively find subdirectories
+For 
+*/
+void PlaylistListContainer::BulkImportPlaylists() {
+  QString base_path(settings_.value("last_path", Utilities::GetConfigPath(
+                                           Utilities::Path_DefaultMusicLibrary)).toString());
+  base_path = QFileDialog::getExistingDirectory(this, tr("Add directory..."), base_path);
+
+  if (base_path.isNull()) {
+    return;
+  }
+
+  //Create Root Folder
+  QFileInfo child_info(base_path);
+  QStandardItem* root_folder = model_->NewFolder(child_info.fileName());
+  // model_->invisibleRootItem()->appendRow(model_->NewFolder(name));
+  model_->invisibleRootItem()->appendRow(root_folder);
+
+  bulk_imported_id_list_ = new QList<int>();
+  bulk_imported_count_ = 0;
+  debug_count_ = 0;
+  //QMap<int, QString>* file_map = new QMap<int, QString>();
+  RecursivelyCreateSubfolders(root_folder, base_path, child_info.baseName());
+
+  settings_.setValue("last_path", base_path);
+}
+
+void PlaylistListContainer::RecursivelyCreateSubfolders(QStandardItem* parent_folder, QString path, QString ui_path/*, QMap<int, QString>* file_map*/){
+  QStringList filters;
+  filters << "*.xspf";
+  // QString filters
+  // filters = app_->playlist_manager()->parser()->filters();
+
+  QDirIterator it(path, QDir::Dirs | QDir::Files | QDir::Hidden | QDir::NoDotAndDotDot);
+  while(it.hasNext()) {
+    QString child(it.next());
+    QFileInfo child_info(child);
+    if (child_info.isDir()) {
+      QStandardItem* folder = model_->NewFolder(child_info.fileName());
+      parent_folder->appendRow(folder);
+      RecursivelyCreateSubfolders(folder, child_info.absoluteFilePath(), ui_path + "/" + child_info.baseName());
+    }else if(child_info.isFile()){
+      if(QDir::match(filters, child_info.fileName())){
+
+        //app_->playlist_manager()->CreatePlaylistFromPath(child, ui_path);
+        bulk_imported_count_++;
+        //qDebug() << "||| BULK_IMPORTED_COUNT: " << bulk_imported_count_;
+
+        int id = app_->playlist_manager()->CreatePlaylistFromPath(child, ui_path);
+
+        Playlist* playlist = app_->playlist_manager()->playlist(id);
+        connect(playlist, SIGNAL(PlaylistSongsLoaded(int)), SLOT(BulkImportPlaylistsCallback(int)));
+
+        PlaylistPathChanged(id, ui_path);
+
+      }else{
+        // qDebug() << "Exclude: " << child_info.fileName();
+      }
+    }
+  }
+}
+
+void PlaylistListContainer::BulkImportPlaylistsCallback (int id){
+  if(bulk_imported_id_list_->contains(id)){
+    return;
+  }
+  if(bulk_imported_id_list_->count() == 0){
+    qDebug() << "||| BULK_IMPORTED_COUNT: " << bulk_imported_count_;
+  }
+  //Playlist* playlist = app_->playlist_manager()->playlist(id);
+  app_->playlist_manager()->BulkImportPlaylistsCallback(id);
+  const QString& name = app_->playlist_manager()->GetPlaylistName(id);
+  AddPlaylist(id, name, true);
+  bulk_imported_id_list_->append(id);
+  if(bulk_imported_id_list_->count() == bulk_imported_count_){
+    //clean up tabs
+    qDebug() << "| ||| ||| FINAL COUNT: " << bulk_imported_count_;
+    for(qsizetype i =0; i < bulk_imported_id_list_->count(); i++){
+      app_->playlist_manager()->Close(bulk_imported_id_list_->at(i));
+    }
+    app_->playlist_manager()->ChangePlaylistOrder(app_->playlist_manager()->GetAllPlaylistIds());
+
+  }else{
+    //qDebug() << "||| ID_LIST SIZE: " << bulk_imported_id_list_->count();
   }
 }
 
@@ -388,6 +495,7 @@ void PlaylistListContainer::PlaylistPathChanged(int id,
   // Check the playlist exists (if it's not opened it's not in the manager)
   if (playlist) {
     playlist->set_ui_path(new_path);
+    
   }
 }
 
@@ -473,6 +581,7 @@ void PlaylistListContainer::contextMenuEvent(QContextMenuEvent* e) {
     menu_->addAction(action_remove_);
     menu_->addSeparator();
     menu_->addAction(action_save_playlist_);
+    menu_->addAction(action_bulk_import_playlists_);
   }
   menu_->popup(e->globalPos());
 }

@@ -98,6 +98,7 @@ PlaylistBackend::PlaylistList PlaylistBackend::GetPlaylists(
     p.dynamic_backend = q.value(5).toString();
     p.special_type = q.value(6).toString();
     p.ui_path = q.value(7).toString();
+    qDebug() << "UI_PATH: " << p.ui_path;
     p.favorite = q.value(8).toBool();
     ret << p;
   }
@@ -279,6 +280,7 @@ PlaylistItemPtr PlaylistBackend::RestoreCueData(
 void PlaylistBackend::SavePlaylistAsync(int playlist,
                                         const PlaylistItemList& items,
                                         int last_played, GeneratorPtr dynamic) {
+  qDebug() << "----------- SAVING PLAYLIST ------------";
   metaObject()->invokeMethod(
       this, "SavePlaylist", Qt::QueuedConnection, Q_ARG(int, playlist),
       Q_ARG(PlaylistItemList, items), Q_ARG(int, last_played),
@@ -343,6 +345,9 @@ void PlaylistBackend::SavePlaylist(int playlist, const PlaylistItemList& items,
   if (db_->CheckErrors(update)) return;
 
   transaction.Commit();
+
+  qLog(Debug) << "||| BACKEND SAVE ASYNC: " << playlist;
+  emit PlaylistSaved(playlist);
 }
 
 int PlaylistBackend::CreatePlaylist(const QString& name,
@@ -356,6 +361,26 @@ int PlaylistBackend::CreatePlaylist(const QString& name,
       " VALUES (:name, :special_type)");
   q.bindValue(":name", name);
   q.bindValue(":special_type", special_type);
+  q.exec();
+  if (db_->CheckErrors(q)) return -1;
+
+  return q.lastInsertId().toInt();
+}
+
+int PlaylistBackend::CreatePlaylistBulkImport(const QString& name,
+                                    const QString& special_type, const QString& ui_path) {
+  QMutexLocker l(db_->Mutex());
+  QSqlDatabase db(db_->Connect());
+
+  QSqlQuery q(db);
+  q.prepare(
+      "INSERT INTO playlists (name, ui_order, special_type, ui_path, is_favorite)"
+      " VALUES (:name, :ui_order, :special_type, :ui_path, :is_favorite)");
+  q.bindValue(":name", name);
+  q.bindValue(":ui_order", -1);
+  q.bindValue(":special_type", special_type);
+  q.bindValue(":ui_path", ui_path);
+  q.bindValue(":is_favorite", true);
   q.exec();
   if (db_->CheckErrors(q)) return -1;
 
